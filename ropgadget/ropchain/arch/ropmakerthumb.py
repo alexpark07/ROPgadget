@@ -14,6 +14,26 @@
 import re
 from   capstone import *
 
+class REGS:
+    r0  = False
+    r1  = False
+    r2  = False
+    r3  = False
+    r4  = False
+    r5  = False
+    r6  = False
+    r7  = False
+    r8  = False
+    r9  = False
+    r10 = False
+    r11 = False
+    r12 = False
+    sp  = False
+    lr  = False
+    pc  = False
+    enable_regs = []
+    enable_count = 0
+
 class ROPMakerTHUMB:
     def __init__(self, binary, gadgets, liboffset=0x0):
         self.__binary  = binary
@@ -25,55 +45,38 @@ class ROPMakerTHUMB:
         self.__generate()
 
     def __lookingForPopPc(self, gadgetsAlreadyTested):
+        POP_PC = []
         for gadget in self.__gadgets:
             if gadget in gadgetsAlreadyTested:
                 continue
             f = gadget["gadget"].split(" ; ")[0]
-            # regex -> mov dword ptr [r32], r32
-            #regex = re.search("mov dword ptr \[(?P<dst>([(eax)|(ebx)|(ecx)|(edx)|(esi)|(edi)]{3}))\], (?P<src>([(eax)|(ebx)|(ecx)|(edx)|(esi)|(edi)]{3}))$", f)
             # regex -> pop {r0,..., pc}
-            regex = re.search("pop {r0,.*?, pc}$", f)
+            #regex = re.search("pop {r0,.*?, pc}$", f)
+            regex = re.search("pop {.*?, pc}$", f)
             if regex:
                 lg = gadget["gadget"].split(" ; ")[0]
                 if lg:
                     regex = re.findall("{(.*?)}", lg)
                     if len(regex) > 0:
                         rv = regex[0].split(', ')
-                        print rv
                     else:
-                        # there is no result in gadget
+                        # there is no result in regex
                         continue
                 try:
+                    R = {}
                     idx = 0
                     for r in rv:
-                        if r == 'r0': continue
-                        elif r == 'pc': continue
-                        else:
-                            idx = idx + 1
+                        R[idx] = r
+                        idx = idx + 1
 
                     print "\t[+] Gadget found: 0x%x %s" %(gadget["vaddr"], gadget["gadget"])
-                    return [gadget, idx]
+                    POP_PC.append(R)
                 except:
                     continue
-        return None
 
-    def __lookingForSomeThing(self, something):
-        for gadget in self.__gadgets:
-            lg = gadget["gadget"].split(" ; ")
-            if lg[0] == something:
-                try:
-                    for g in lg[1:]:
-                        if g.split()[0] != "pop" and g.split()[0] != "ret":
-                            raise
-                        # we need this to filterout 'ret' instructions with an offset like 'ret 0x6', because they ruin the stack pointer
-                        if g != "ret":
-                            if g.split()[0] == "ret" and g.split()[1] != "":
-                                raise
-                    print "\t[+] Gadget found: 0x%x %s" %(gadget["vaddr"], gadget["gadget"])
-                    return gadget
-                except:
-                    continue
-        return None
+
+        if len(POP_PC) == 0: return None
+        else: return POP_PC
 
     def __padding(self, gadget, regAlreadSetted):
         lg = gadget["gadget"].split(" ; ")
@@ -85,9 +88,10 @@ class ROPMakerTHUMB:
                 except KeyError:
                     print "\tp += pack('<I', 0x41414141) # padding"
 
-    def __buildRopChain(self, write4where, popDst, popSrc, xorSrc, xorEax, incEax, popEbx, popEcx, popEdx, syscall):
+    def __buildRopChain(self, POP_R0_PC):
 
         sects = self.__binary.getDataSections()
+        #print dir(self.__binary)
         dataAddr = None
         for s in sects:
             if s["name"] == ".data":
@@ -103,59 +107,6 @@ class ROPMakerTHUMB:
         print "\t# Padding goes here"
         print "\tp = ''\n"
 
-        print "\tp += pack('<I', 0x%08x) # %s" %(popDst["vaddr"], popDst["gadget"])
-        print "\tp += pack('<I', 0x%08x) # @ .data" %(dataAddr)
-        self.__padding(popDst, {})
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(popSrc["vaddr"], popSrc["gadget"])
-        print "\tp += '/bin'"
-        self.__padding(popSrc, {popDst["gadget"].split()[1]: dataAddr}) # Don't overwrite reg dst
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(write4where["vaddr"], write4where["gadget"])
-        self.__padding(write4where, {})
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(popDst["vaddr"], popDst["gadget"])
-        print "\tp += pack('<I', 0x%08x) # @ .data + 4" %(dataAddr + 4)
-        self.__padding(popDst, {})
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(popSrc["vaddr"], popSrc["gadget"])
-        print "\tp += '//sh'"
-        self.__padding(popSrc, {popDst["gadget"].split()[1]: dataAddr + 4}) # Don't overwrite reg dst
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(write4where["vaddr"], write4where["gadget"])
-        self.__padding(write4where, {})
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(popDst["vaddr"], popDst["gadget"])
-        print "\tp += pack('<I', 0x%08x) # @ .data + 8" %(dataAddr + 8)
-        self.__padding(popDst, {})
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(xorSrc["vaddr"], xorSrc["gadget"])
-        self.__padding(xorSrc, {})
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(write4where["vaddr"], write4where["gadget"])
-        self.__padding(write4where, {})
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(popEbx["vaddr"], popEbx["gadget"])
-        print "\tp += pack('<I', 0x%08x) # @ .data" %(dataAddr)
-        self.__padding(popEbx, {})
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(popEcx["vaddr"], popEcx["gadget"])
-        print "\tp += pack('<I', 0x%08x) # @ .data + 8" %(dataAddr + 8)
-        self.__padding(popEcx, {"ebx": dataAddr}) # Don't overwrite ebx
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(popEdx["vaddr"], popEdx["gadget"])
-        print "\tp += pack('<I', 0x%08x) # @ .data + 8" %(dataAddr + 8)
-        self.__padding(popEdx, {"ebx": dataAddr, "ecx": dataAddr + 8}) # Don't overwrite ebx and ecx
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(xorEax["vaddr"], xorEax["gadget"])
-        self.__padding(xorEax, {"ebx": dataAddr, "ecx": dataAddr + 8}) # Don't overwrite ebx and ecx
-
-        for i in range(11):
-            print "\tp += pack('<I', 0x%08x) # %s" %(incEax["vaddr"], incEax["gadget"])
-            self.__padding(incEax, {"ebx": dataAddr, "ecx": dataAddr + 8}) # Don't overwrite ebx and ecx
-
-        print "\tp += pack('<I', 0x%08x) # %s" %(syscall["vaddr"], syscall["gadget"])
-
     def __generate(self):
 
         # To find the smaller gadget
@@ -163,72 +114,20 @@ class ROPMakerTHUMB:
 
         print "\nROP chain generation\n==========================================================="
 
-        print "\n- Step 1 -- Write-what-where gadgets\n"
+        print "\n- Step 1 -- Pop Rx and PC gadgets\n"
 
         gadgetsAlreadyTested = []
         while True:
-            write4where = self.__lookingForPopPc(gadgetsAlreadyTested)
-            if not write4where:
-                print "\t[-] Can't find the 'mov dword ptr [r32], r32' gadget"
+            POP_PC = self.__lookingForPopPc(gadgetsAlreadyTested)
+
+            if not POP_PC:
+                print "\t[-] Can't find the 'pop {r0, ..., pc}' gadget"
                 return
 
-            popDst = self.__lookingForSomeThing("pop %s" %(write4where[1]))
-            if not popDst:
-                print "\t[-] Can't find the 'pop %s' gadget. Try with another 'mov [reg], reg'\n" %(write4where[1])
-                gadgetsAlreadyTested += [write4where[0]]
-                continue
-
-            popSrc = self.__lookingForSomeThing("pop %s" %(write4where[2]))
-            if not popSrc:
-                print "\t[-] Can't find the 'pop %s' gadget. Try with another 'mov [reg], reg'\n" %(write4where[2])
-                gadgetsAlreadyTested += [write4where[0]]
-                continue
-
-            xorSrc = self.__lookingForSomeThing("xor %s, %s" %(write4where[2], write4where[2]))
-            if not xorSrc:
-                print "\t[-] Can't find the 'xor %s, %s' gadget. Try with another 'mov [r], r'\n" %(write4where[2], write4where[2])
-                gadgetsAlreadyTested += [write4where[0]]
-                continue
             else:
                 break
 
-        print "\n- Step 2 -- Init syscall number gadgets\n"
-
-        xorEax = self.__lookingForSomeThing("xor eax, eax")
-        if not xorEax:
-            print "\t[-] Can't find the 'xor eax, eax' instuction"
-            return
-
-        incEax = self.__lookingForSomeThing("inc eax")
-        if not incEax:
-            print "\t[-] Can't find the 'inc eax' instuction"
-            return
-
-        print "\n- Step 3 -- Init syscall arguments gadgets\n"
-
-        popEbx = self.__lookingForSomeThing("pop ebx")
-        if not popEbx:
-            print "\t[-] Can't find the 'pop ebx' instruction"
-            return
-
-        popEcx = self.__lookingForSomeThing("pop ecx")
-        if not popEcx:
-            print "\t[-] Can't find the 'pop ecx' instruction"
-            return
-
-        popEdx = self.__lookingForSomeThing("pop edx")
-        if not popEdx:
-            print "\t[-] Can't find the 'pop edx' instruction"
-            return
-
-        print "\n- Step 4 -- Syscall gadget\n"
-
-        syscall = self.__lookingForSomeThing("int 0x80")
-        if not syscall:
-            print "\t[-] Can't find the 'syscall' instruction"
-            return
-
         print "\n- Step 5 -- Build the ROP chain\n"
 
-        self.__buildRopChain(write4where[0], popDst, popSrc, xorSrc, xorEax, incEax, popEbx, popEcx, popEdx, syscall)
+        self.__buildRopChain(POP_PC)
 
