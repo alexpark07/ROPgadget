@@ -1,1 +1,6 @@
 *.pyc
+*.swp
+*.tmp
+ROPGadget.egg-info*
+dist/*
+build/*
