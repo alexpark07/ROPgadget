@@ -177,7 +177,7 @@ class Core(cmd.Cmd):
             self.__getAllgadgets()
             self.__lookingForGadgets()
             if self.__options.ropchain:
-                ROPMaker(self.__binary, self.__gadgets, self.__offset)
+                ROPMaker(self.__binary, self.__gadgets, self.__offset, self.__options.thumb)
             return True
 
 

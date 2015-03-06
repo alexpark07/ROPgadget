@@ -15,12 +15,14 @@
 from capstone           import *
 from arch.ropmakerx86   import *
 from arch.ropmakerx64   import *
+from arch.ropmakerthumb import *
 
 class ROPMaker:
-    def __init__(self, binary, gadgets, offset):
+    def __init__(self, binary, gadgets, offset, isThumb=False):
         self.__binary  = binary
         self.__gadgets = gadgets
         self.__offset  = offset
+        self.__isThumb = isThumb
 
         self.__handlerArch()
 
@@ -35,6 +37,13 @@ class ROPMaker:
             and self.__binary.getArchMode() == CS_MODE_64   \
             and self.__binary.getFormat() == "ELF":
             ROPMakerX64(self.__binary, self.__gadgets, self.__offset)
+
+        # Thumb Mode Only
+        elif self.__binary.getArch() == CS_ARCH_ARM          \
+            and self.__binary.getArchMode() == CS_MODE_32    \
+            and self.__binary.getFormat() == "ELF":
+            if self.__isThumb == True:
+                ROPMakerTHUMB(self.__binary, self.__gadgets, self.__offset)
 
         else:
             print "\n[Error] ROPMaker.__handlerArch - Arch not supported yet for the rop chain generation"
